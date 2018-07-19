@@ -1,0 +1,1905 @@
+---
+title: "DATA 621 Week 5"
+author: "Vinicio Haro"
+date: "July 9, 2018"
+output:
+  word_document: default
+  html_document: default
+---
+
+We are given a dataset containing information on commercially avilable wines. The variables describe the chemical attributes of wine being sold. Our response variable in this case is the number of wine cases purchased by wine distribution companies. Each record in the data represents the number of cases sold for a wine with the specific chemical attributes. 
+
+Our goal is to model the data and predict the number of cases sold as a function of wine's chemical attributes. The use case is for a wine manufacturer to adjust their wine offerings in order to maximize sales. The model of use for this case study will be a count regression model. 
+
+Read the data in 
+```{r echo=FALSE}
+url <- 'https://raw.githubusercontent.com/vindication09/DATA-621-Week-5/master/wine-training-data.csv'
+url2<-'https://raw.githubusercontent.com/vindication09/DATA-621-Week-5/master/wine-evaluation-data.csv'
+
+wine_training <- read.csv(url, header = TRUE)
+wine_evaluation <- read.csv(url2, header = TRUE)
+
+
+head(wine_training,10)
+```
+
+
+I) EDA
+
+How many records and variables? 
+```{r echo=FALSE, error=TRUE}
+wine_training2<-subset(wine_training, select=-c(INDEX))
+#wine_training2<-subset(wine_training, select=-c(INDEX))
+wine_evaluation2<-subset(wine_evaluation, select=-c(IN))
+names(wine_training2)
+str(wine_training2)
+```
+
+
+For this particular study, we will be implimenting new features into our EDA using a package called DataExplorer. More information can be found here https://datascienceplus.com/blazing-fast-eda-in-r-with-dataexplorer/
+
+Using DataExplorer, we can examine the dimensions of each variable. 
+```{r echo=FALSE}
+#install.packages('DataExplorer) 
+library(DataExplorer)
+plot_str(wine_training2)
+```
+
+This interactive chart details the data type for each variable in addition to number or rows and variables within the dataset. 
+
+There are 12,795 records and 15 variables. The index variable can be removed all together since it only serves as a row number. The data types seem have correct data types.
+
+Missing value analysis 
+```{r echo=FALSE}
+plot_missing(wine_training2)
+```
+
+STARS is missing over 25% of its data. Sulphates has 9% missing data. The missing variables will be treated in the data preperation step.  
+
+
+Lets examine the spread of each variable 
+```{r echo=FALSE}
+plot_histogram(wine_training2);plot_density(wine_training2)
+```
+
+It looks like the spread of most variables are even, with a near normal distribution. AcidIndex has a right skew. Most variables have significant peaks. This will be closely analyzed with an outlier analysis.  
+
+
+Lets closely examine the distribution of the response variable 
+```{r echo=FALSE}
+barplot(table(wine_training2$TARGET), ylim=c(0, 5000), xlab="Result", ylab="N", col="black",
+        main="Distribution of Target(Response)")
+```
+
+The distribution of the response variable is close to normal, however there are a significant number of records that have the number 0. 
+
+Overall Summary of the data
+```{r echo=FALSE}
+summary(wine_training2)
+```
+
+There are several variables that should not contain any negative entires. This brings the problem of data collection into consideration. This will have to be furthur investigated in the data perperation step. 
+
+Lets point out the summary of the response variable
+```{r echo=FALSE}
+summary(wine_training2$TARGET);var(wine_training2$TARGET)
+```
+
+The mean is nearly equal to the variance. This is a strong indicator 
+
+How many negative values does each variable contain?
+```{r echo=FALSE}
+#12,795
+colSums(wine_training2 < 0)
+#has.neg <- apply(wine_training2, 1, function(row) any(row < 0))
+#which(has.neg)
+```
+
+Label Appeal can have negative values in its domain. A negative value means customers do not like the design. Several chemical attributes have negative numbers. 23% of the values in Citric Acid are negative. In our data prep, we will confirm if negative numbers are in the domain of these variables based on the definition of their chemical attributes.
+
+
+How does each variable correlate to the response variable?
+```{r echo=FALSE}
+apply(wine_training2,2,  function(col)cor(col, wine_training2$TARGET))
+```
+
+There are several variables that do not have a correlation with the number of sales. The highest positive correlation is label appeal which is the marketing score. This correlation makes sense as one would imagine a higher marketing score leads to more sales. Acid index has the strongest negative correlation however it is difficult to see the connection without prior knowledge of wine attributes. 
+
+How do the other variables correlate with each other? 
+```{r echo=FALSE}
+#correlation matrix and visualization 
+correlation_matrix <- round(cor(wine_training2),2)
+
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(correlation_matrix){
+    correlation_matrix[upper.tri(correlation_matrix)] <- NA
+    return(correlation_matrix)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(correlation_matrix){
+    correlation_matrix[lower.tri(correlation_matrix)]<- NA
+    return(correlation_matrix)
+  }
+  
+  upper_tri <- get_upper_tri(correlation_matrix)
+
+
+
+library(reshape2)
+
+# Melt the correlation matrix
+melted_correlation_matrix <- melt(upper_tri, na.rm = TRUE)
+
+# Heatmap
+library(ggplot2)
+
+ggheatmap <- ggplot(data = melted_correlation_matrix, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 15, hjust = 1))+
+ coord_fixed()
+
+
+#add nice labels 
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 3) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.x=element_text(size=rel(0.8), angle=90),
+  axis.text.y=element_text(size=rel(0.8)),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwiwine_training3h = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+```
+
+There are numerous variables that do not have any correlation at all with any other variable. Through modeling, we will determine if they are significant. STARS has no correlation with any variable except its self. STARS also has the highest percentage of missing data. It's hard to say if the missing data is a reason why it does not correlate with other predictors. This only gives evidence in support of removing STARS all together. 
+
+Outlier Analysis 
+```{r include=FALSE}
+outlierKD<-function(wine_training2, var) {
+     var_name <- eval(substitute(var),eval(wine_training2))
+     na1 <- sum(is.na(var_name))
+     m1 <- mean(var_name, na.rm = T)
+     par(mfrow=c(2, 2), oma=c(0,0,3,0))
+     boxplot(var_name, main="With outliers")
+     hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+     outlier <- boxplot.stats(var_name)$out
+     mo <- mean(outlier)
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="Without outliers")
+     hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+     title("Outlier Check", outer=TRUE)
+     na2 <- sum(is.na(var_name))
+     cat("Outliers identified:", na2 - na1, "n")
+     cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1), "n")
+     cat("Mean of the outliers:", round(mo, 2), "n")
+     m2 <- mean(var_name, na.rm = T)
+     cat("Mean without removing outliers:", round(m1, 2), "n")
+     cat("Mean if we remove outliers:", round(m2, 2), "n")
+     response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+     if(response == "y" | response == "yes"){
+          wine_training3[as.character(substitute(var))] <- invisible(var_name)
+          assign(as.character(as.list(match.call())$wine_training2), wine_training2, envir = .GlobalEnv)
+          cat("Outliers successfully removed", "n")
+          return(invisible(wine_training2))
+     } else{
+          cat("Nothing changed", "n")
+          return(invisible(var_name))
+     }
+}
+```
+
+Target
+```{r echo=FALSE}
+outlierKD(wine_training2, TARGET)
+```
+
+Chlorides
+```{r echo=FALSE}
+outlierKD(wine_training2, Chlorides)
+```
+
+Alcohol
+```{r echo=FALSE}
+outlierKD(wine_training2, Alcohol)
+```
+
+Fixed Acidity
+```{r echo=FALSE}
+outlierKD(wine_training2, FixedAcidity)
+```
+
+Free Sulfur Dioxide
+```{r echo=FALSE}
+outlierKD(wine_training2, FreeSulfurDioxide)
+```
+
+Label Appeal
+```{r echo=FALSE}
+outlierKD(wine_training2, LabelAppeal)
+```
+
+Volatile Acidity
+```{r echo=FALSE}
+outlierKD(wine_training2, VolatileAcidity)
+```
+
+Total Sulfur Dioxide
+```{r echo=FALSE}
+outlierKD(wine_training2, TotalSulfurDioxide)
+```
+
+Acid Index
+```{r echo=FALSE}
+outlierKD(wine_training2, AcidIndex)
+```
+
+Citric Acid
+```{r echo=FALSE}
+outlierKD(wine_training2, CitricAcid)
+```
+
+Denisty 
+```{r echo=FALSE}
+outlierKD(wine_training2, Density)
+```
+
+Residual Sugar 
+```{r echo=FALSE}
+outlierKD(wine_training2, ResidualSugar)
+```
+
+pH
+```{r echo=FALSE}
+outlierKD(wine_training2, pH)
+```
+
+STARS
+```{r echo=FALSE}
+outlierKD(wine_training2, STARS)
+```
+
+Sulphates
+```{r}
+outlierKD(wine_training2, Sulphates)
+```
+
+The removal of outliers seems to tighten the overall spread of certain variables such as pH. Removing outliers for other variables does not really make a change to the overall distribution. Through modeling, we will have a better idea if we should remove outliers or not. 
+
+II) Data Preperation 
+Recall some of our findings regarding the data 
+Number of missing values 
+```{r echo=FALSE}
+colSums(is.na(wine_training2))
+```
+
+Stars is defined as the rating given by wine experts. One could assume that a high rating should be correlated or related to the response variable. We are going to impute the STARS variable with its median value and recheck the correlation number. 
+
+Summary of STARS after we impute missing values with the median vs non imputed values 
+```{r include=FALSE}
+library(Hmisc)
+
+wine_training3<-wine_training2
+
+wine_training3$STARS<-impute(wine_training3$STARS, median)
+
+#make an additional subset that retains the same values but simply removes negative values (not possible)
+wine_training_redux <- wine_training2[wine_training2$Alcohol >= 0 && wine_training2$Sulphates >= 0
+                                      && wine_training2$Sulphates >= 0
+                                      && wine_training2$TotalSulfurDioxide >= 0
+                                      && wine_training2$FreeSulfurDioxide >= 0
+                                      && wine_training2$Chlorides >= 0
+                                      && wine_training2$ResidualSugar
+                                      && wine_training2$CitricAcid
+                                      && wine_training2$VolatileAcidity >= 0
+                                      && wine_training2$FixedAcidity >= 0,]
+
+#wine_training_redux <- wine_training2[wine_training2$Sulphates >= 0,] 
+#wine_training_redux <- wine_training2[wine_training2$TotalSulfurDioxide >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$FreeSulfurDioxide >= 0, ]
+#wine_training_redux <- wine_training2[wine_training2$Chlorides >= 0, ]
+#wine_training_redux <- wine_training2[wine_training2$ResidualSugar >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$CitricAcid >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$VolatileAcidity >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$FixedAcidity >= 0,]
+```
+
+```{r echo=FALSE}
+summary(wine_training3$STARS);summary(wine_training2$STARS)
+```
+
+Plots of Spread
+```{r echo=FALSE}
+barplot(table(wine_training3$STARS), ylim=c(0, 7000), xlab="Rating (post impute)", ylab="N", col="black");
+barplot(table(wine_training2$STARS), ylim=c(0, 7000), xlab="Rating (pre impute)", ylab="N", col="black")
+
+```
+
+Before we impute the other variables, we need to check if negative values belong in their domin. If negative values do not make sense in the context of the variable, then some potential fixes are to consider the absolute value or drop them from the data frame all together.  
+```{r echo=FALSE}
+colSums(wine_training3<0);colSums(is.na(wine_training3))
+```
+
+
+After scanning several documents regarding the chemical properties of wine,is it reasonable to transform the variables with negative values into positive for chemical attributes? 
+
+We need to provide justification for transforming chemical attributes into positive only values. 
+
+Residual sugar concentration is a measure of the amount of sugar solids in a given volume of wine following the end of fermentation and any sugar addition when making a sweet wine. 
+
+Volatile Acidity and citric is also a measurement that can be expressed in g/l or mg/l.
+
+Fixed Acidity levels found in wine can vary greatly but in general one would expect to see 1,000 to 4,000 mg/L tartaric acid, 0 to 8,000 mg/L malic acid, 0 to 500 mg/L citric acid, and 500 to 2,000 mg/L succinic acid
+
+Based on some understanding on these chemical attributes, it makes sense to treat negative values. Any acidity variable is a measure and measures cannot be negative unless we examine a rate of change. However rate of change is not needed for this case study. 
+
+Documentation:
+https://winemakermag.com/501-measuring-residual-sugar-techniques
+http://waterhouse.ucdavis.edu/whats-in-wine/volatile-acidity
+https://en.wikipedia.org/wiki/Acids_in_wine
+```{r include=FALSE}
+wine_training3$Sulphates<-abs(wine_training3$Sulphates)
+wine_training3$pH<-abs(wine_training3$pH)
+wine_training3$ResidualSugar<-abs(wine_training3$ResidualSugar)
+wine_training3$Chlorides<-abs(wine_training3$Chlorides)
+wine_training3$FreeSulfurDioxide<-abs(wine_training3$FreeSulfurDioxide)
+wine_training3$TotalSulfurDioxide<-abs(wine_training3$TotalSulfurDioxide)
+wine_training3$VolatileAcidity<-abs(wine_training3$VolatileAcidity)
+wine_training3$Alcohol<-abs(wine_training3$ Alcohol)
+wine_training3$CitricAcid<-abs(wine_training3$CitricAcid)
+wine_training3$FixedAcidity<-abs(wine_training3$FixedAcidity)
+
+wine_evaluation3<-wine_evaluation
+
+wine_evaluation3$Sulphates<-abs(wine_evaluation3$Sulphates)
+wine_evaluation3$pH<-abs(wine_evaluation3$pH)
+wine_evaluation3$ResidualSugar<-abs(wine_evaluation3$ResidualSugar)
+wine_evaluation3$Chlorides<-abs(wine_evaluation3$Chlorides)
+wine_evaluation3$FreeSulfurDioxide<-abs(wine_evaluation3$FreeSulfurDioxide)
+wine_evaluation3$TotalSulfurDioxide<-abs(wine_evaluation3$TotalSulfurDioxide)
+wine_evaluation3$VolatileAcidity<-abs(wine_evaluation3$VolatileAcidity)
+wine_evaluation3$Alcohol<-abs(wine_evaluation3$ Alcohol)
+wine_evaluation3$CitricAcid<-abs(wine_evaluation3$CitricAcid)
+wine_evaluation3$FixedAcidity<-abs(wine_evaluation3$FixedAcidity)
+```
+
+If positve plus imputed values has a deterimental effect on the model, then we will use the unaltered data wine_training2 and consider some alternate transformation. 
+```{r echo=FALSE}
+wine_training3$Sulphates<-impute(wine_training3$Sulphates, median)
+wine_training3$pH<-impute(wine_training3$pH, median)
+wine_training3$ResidualSugar<-impute(wine_training3$ResidualSugar, median)
+wine_training3$Chlorides<-impute(wine_training3$Chlorides, median)
+wine_training3$FreeSulfurDioxide<-impute(wine_training3$FreeSulfurDioxide, median)
+wine_training3$TotalSulfurDioxide<-impute(wine_training3$TotalSulfurDioxide, median)
+wine_training3$Alcohol<-impute(wine_training3$Alcohol, median)
+
+wine_evaluation3$Sulphates<-impute(wine_evaluation3$Sulphates, median)
+wine_evaluation3$pH<-impute(wine_evaluation3$pH, median)
+wine_evaluation3$ResidualSugar<-impute(wine_evaluation3$ResidualSugar, median)
+wine_evaluation3$Chlorides<-impute(wine_evaluation3$Chlorides, median)
+wine_evaluation3$FreeSulfurDioxide<-impute(wine_evaluation3$FreeSulfurDioxide, median)
+wine_evaluation3$TotalSulfurDioxide<-impute(wine_evaluation3$TotalSulfurDioxide, median)
+wine_evaluation3$Alcohol<-impute(wine_evaluation3$Alcohol, median)
+#wine_evaluation3$TARGET<-impute(wine_evaluation3$Alcohol, median)
+
+
+
+summary(wine_training3)
+```
+
+Howdid the distributions change?
+```{r echo=FALSE}
+plot_density(wine_training3)
+```
+
+```{r eval=FALSE, include=FALSE}
+#testing
+wine_training4<-wine_training3
+
+wine_training4$Sulphates<-log(wine_training4$Sulphates+1)
+wine_training4$pH<-log(wine_training4$pH+1)
+wine_training4$ResidualSugar<-log(wine_training4$ResidualSugar+1)
+wine_training4$Chlorides<-log(wine_training4$Chlorides+1)
+wine_training4$FreeSulfurDioxide<-log(wine_training4$FreeSulfurDioxide+1)
+wine_training4$TotalSulfurDioxide<-log(wine_training4$TotalSulfurDioxide+1)
+wine_training4$Alcohol<-log(wine_training4$Alcohol+1)
+
+
+plot_density(wine_training4);plot_density(wine_training2)
+
+```
+
+How Does correlation change? (wine_training3)
+```{r echo=FALSE}
+#correlation matrix and visualization 
+correlation_matrix <- round(cor(wine_training3),2)
+
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(correlation_matrix){
+    correlation_matrix[upper.tri(correlation_matrix)] <- NA
+    return(correlation_matrix)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(correlation_matrix){
+    correlation_matrix[lower.tri(correlation_matrix)]<- NA
+    return(correlation_matrix)
+  }
+  
+  upper_tri <- get_upper_tri(correlation_matrix)
+
+
+
+library(reshape2)
+
+# Melt the correlation matrix
+melted_correlation_matrix <- melt(upper_tri, na.rm = TRUE)
+
+# Heatmap
+library(ggplot2)
+
+ggheatmap <- ggplot(data = melted_correlation_matrix, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 15, hjust = 1))+
+ coord_fixed()
+
+
+#add nice labels 
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 3) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.x=element_text(size=rel(0.8), angle=90),
+  axis.text.y=element_text(size=rel(0.8)),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwiwine_training3h = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+```
+
+```{r eval=FALSE, include=FALSE}
+#correlation matrix and visualization 
+correlation_matrix <- round(cor(wine_training4),2)
+
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(correlation_matrix){
+    correlation_matrix[upper.tri(correlation_matrix)] <- NA
+    return(correlation_matrix)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(correlation_matrix){
+    correlation_matrix[lower.tri(correlation_matrix)]<- NA
+    return(correlation_matrix)
+  }
+  
+  upper_tri <- get_upper_tri(correlation_matrix)
+
+
+
+library(reshape2)
+
+# Melt the correlation matrix
+melted_correlation_matrix <- melt(upper_tri, na.rm = TRUE)
+
+# Heatmap
+library(ggplot2)
+
+ggheatmap <- ggplot(data = melted_correlation_matrix, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 15, hjust = 1))+
+ coord_fixed()
+
+
+#add nice labels 
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 3) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.x=element_text(size=rel(0.8), angle=90),
+  axis.text.y=element_text(size=rel(0.8)),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwiwine_training3h = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+```
+
+We start to see evidence of more relationships within the data after we have transformed the data. Once we do modeling, we will be able to determine if the data has strong integrity. To reiterate, the entires in the variables relating to chemical properties were made positive because we discovered that they pertain to measurments in units such as mg and l. It does not make sense for measurments to be negative in the physical world. I assume the negative values were a result of a data collection error. 
+
+III) Build Models
+
+Objective: Using the training data set, build at least two different poisson regression models, at least two different negative binomial regression models, and at least two multiple linear regression models, using different variables (or the same variables with different transformations)
+
+Full Poisson Regression Model on Transformed Data 
+```{r echo=FALSE}
+library(vcd)
+library(faraway)
+library(AER)
+library(boot)
+
+pmod <- glm(TARGET~., family="poisson", data=wine_training3)
+summary(pmod);
+
+
+
+#goodness of fit
+anova(pmod, test="Chisq");
+
+glm.diag.plots(pmod, glmdiag = glm.diag(pmod), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+p1<-1-(18475/22861)
+p1;
+
+pchisq(pmod$deviance, df=pmod$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+```
+
+Our first model tells us that unit decrases in attributes such as volatile acidity cause the expected number of sales to increase. Residual sugars and fixed acidity have high p values. Residal Sugars have almost no correlation with any of the variables even after transformation. Based on the p-value from the chi square goodness of fit test, we are unable to conclude that the full model is a good fit. The G-statistic is our substitue for r square and in this case, it comes out to .19. 
+
+Lets consider some variable selection using Aic
+```{r echo=FALSE}
+library(MASS)
+step<-stepAIC(pmod, trace=FALSE)
+step$anova
+
+```
+
+AIC suggested a model with Residual Sugar and Fixed Acidity removed. Lets formulate the generated model. 
+
+```{r echo=FALSE}
+pmod2<-glm(TARGET ~ VolatileAcidity + CitricAcid + Chlorides + FreeSulfurDioxide + 
+    TotalSulfurDioxide + Density + pH + Sulphates + Alcohol + 
+    LabelAppeal + AcidIndex + STARS, family="poisson",  data=wine_training3)
+
+summary(pmod2);
+
+#goodness of fit
+anova(pmod2, test="Chisq");
+
+glm.diag.plots(pmod2, glmdiag = glm.diag(pmod2), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod2, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+p2<-1-(18475/22861)
+p2;
+
+pchisq(pmod2$deviance, df=pmod2$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+```
+
+According to this second iteration, volitile acidity and pH are features that do not show evidence of a gooffit according to chi square test. We can build a third model with these additional variables removed. 
+
+```{r echo=FALSE}
+pmod3<-glm(TARGET ~ CitricAcid + Chlorides + FreeSulfurDioxide + 
+    TotalSulfurDioxide + Density + Sulphates + Alcohol + 
+    LabelAppeal + AcidIndex + STARS, family="poisson",  data=wine_training3)
+
+summary(pmod3);
+
+#goodness of fit
+anova(pmod3, test="Chisq");
+
+glm.diag.plots(pmod3, glmdiag = glm.diag(pmod3), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod3, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+p3<-1-(18475/22861)
+p3
+
+pchisq(pmod3$deviance, df=pmod3$df.residual, lower.tail=FALSE)
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+```
+
+Citric Acid does not appear to have any evidence of being a good fit for the model. Lets build an additional model with citric acid removed.
+
+We will also take the diagnostic plots one step furthur. We want to estimate the variance for the target given the mean.The variance appears to be much smaller than the mean
+```{r echo=FALSE}
+pmod4<-glm(TARGET ~ Chlorides + FreeSulfurDioxide + 
+    TotalSulfurDioxide + Density + Sulphates + Alcohol + 
+    LabelAppeal + AcidIndex + STARS, family="poisson",  data=wine_training3)
+
+summary(pmod4);
+
+#goodness of fit
+anova(pmod4, test="Chisq");
+
+glm.diag.plots(pmod4, glmdiag = glm.diag(pmod4), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod4, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(pmod4), confint.default(pmod4, level = 0.95)));
+
+p4<-1-(18475/22861)
+p4;
+
+plot(log(fitted(pmod4)), log((wine_training3$TARGET-fitted(pmod4))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+pchisq(pmod4$deviance, df=pmod4$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+```
+
+This model tells us that average number of wine sales increases when wines have a lower concentration of chlorides. This makes sense considering that high chloride makes the wine taste salty and not as good according to certain documentation. A higher alcohol conentration is a good indicator of a better quality wine so it makes sense to increase as number of wine units sold increases. The same story is reflected when we convert exponents to odds ratios. With the odds ratio, we can see that as wine sales are more likely to increase when wine rating increases. We managed to make a simpler model that still has the same G statistic, meaning only .20 of the proportion of deviance is explained by this model. http://www.scielo.br/scielo.php?script=sci_arttext&pid=S0101-20612015000100095
+
+
+Lets take model five and build a poisson regression model using smoothing splines. We will also use predictors that had a higher correlation with the response variable. These predictors are labelappeal, STARS, and acidindex.
+```{r echo=FALSE}
+library(gam)
+
+pmod_smooth<-gam(TARGET ~ s(LabelAppeal)+s(AcidIndex)+s(STARS) , family=poisson(link=log),  data=wine_training3)
+
+#pmod_smooth<-gam(TARGET ~ LabelAppeal+AcidIndex+STARS , family=poisson(link=log),  data=wine_training3)
+
+summary(pmod_smooth);
+
+#goodness of fit
+anova(pmod_smooth, test="Chisq");
+
+glm.diag.plots(pmod_smooth, glmdiag = glm.diag(pmod_smooth), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod_smooth, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(pmod_smooth), confint.default(pmod_smooth, level = 0.95)));
+
+p_smooth<-1-(17735.95/22860.89)
+p_smooth;
+
+plot(log(fitted(pmod_smooth)), log((wine_training3$TARGET-fitted(pmod_smooth))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+# 1-pchisq(summary(pmod_smooth)$deviance, summary(pmod_smooth)$df.residual)
+pchisq(pmod_smooth$deviance, df=pmod_smooth$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+#plot(p_smooth, pages = 1, scheme = 1, all.terms = TRUE, seWithMean = TRUE)
+```
+
+The poisson model built with smoothing splines yielded the best psuedo r squared value. The predictors are significant with low p values and the smoothing parameters all yield low p values as well. This indicates that there is evidence that the selected predictors form a good overall fit. Using splines yields a marginally better psuedo r square but has better proportion. The odds ratios in this simple model are also the most interpretable. We see that wine sales are 6 times more likley to increase with a unit increase in label appeal and stars. This makes sense since label appeal measures how desirable a wine looks to a customer. Stars is a quality rating. Both stars and label appeal lead to increased sales. 
+
+
+We proceed to building negative binomial models and optimizing said models. 
+
+```{r echo=FALSE}
+library(MASS)
+nmod1 <- glm.nb(TARGET ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3)
+
+summary(nmod1);
+
+#goodness of fit
+anova(nmod1, test="Chisq");
+
+glm.diag.plots(nmod1, glmdiag = glm.diag(nmod1), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(nmod1, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(nmod1), confint.default(nmod1, level = 0.95)));
+
+#n<-1-(18474/22860)
+#n;
+
+plot(log(fitted(nmod1)), log((wine_training3$TARGET-fitted(nmod1))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+pchisq(nmod1$deviance, df=nmod1$df.residual, lower.tail=FALSE)
+
+```
+
+According to this model, fixed acidity, residual sugar and free sulfur dioxide are not significant. Citric acid and ph also do not show evidence of being a good model fit. Lets remove those variables and refit the model. This model has the same fit as the poisson model. 
+
+```{r echo=FALSE}
+nmod2 <- glm.nb(TARGET ~ VolatileAcidity  + 
+    Chlorides + TotalSulfurDioxide + Density + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3)
+
+summary(nmod2);
+
+#goodness of fit
+anova(nmod2, test="Chisq");
+
+glm.diag.plots(nmod2, glmdiag = glm.diag(nmod2), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(nmod2, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(nmod2), confint.default(nmod2, level = 0.95)));
+
+#n2<-1-(18500/22860)
+#n2;
+
+plot(log(fitted(nmod2)), log((wine_training3$TARGET-fitted(nmod2))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+pchisq(nmod2$deviance, df=nmod2$df.residual, lower.tail=FALSE)
+```
+
+Our negative binomial models so far indicate there is not much difference between the earlier iterations of our posisson negative binomial models. 
+
+
+Lets build a standard negative binomial with the three variables from the last iteration of the poisson model.
+```{r echo=FALSE}
+nmod4 <- glm.nb(TARGET ~ Alcohol+LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3)
+
+summary(nmod4);
+
+#goodness of fit
+anova(nmod4, test="Chisq");
+
+glm.diag.plots(nmod4, glmdiag = glm.diag(nmod4), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(nmod4, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(nmod4), confint.default(nmod4, level = 0.95)));
+
+#n2<-1-(18566/22860)
+#n2;
+
+plot(log(fitted(nmod4)), log((wine_training3$TARGET-fitted(nmod4))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+plot(predict(nmod4),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1);
+ 
+ #goodness of fit
+pchisq(nmod4$deviance, df=nmod4$df.residual, lower.tail=FALSE)
+```
+
+Finall, we can attempt to build linear regression models. There are some challenges to building linear regression models. They include the fact that the response variable is ero inflated. We can see that from our histogram. 
+
+```{r echo=FALSE}
+library(olsrr)
+
+lmod1 <- lm(TARGET ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3);
+
+summary(lmod1);
+
+par(mfrow=c(2,2))
+plot(lmod1)
+hist(resid(lmod1), main="Histogram of Residuals");
+ols_test_breusch_pagan(lmod1);
+vif(lmod1);
+
+plot(predict(lmod1),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1)
+```
+
+Lets see what step AIC produces
+```{r echo=FALSE}
+lstep<-stepAIC(lmod1, trace=FALSE)
+lstep$anova
+```
+
+Formulate the model generated by step
+```{r}
+lmod2 <- lm(TARGET ~ VolatileAcidity + CitricAcid + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3);
+
+summary(lmod2);
+
+par(mfrow=c(2,2))
+plot(lmod2)
+hist(resid(lmod2), main="Histogram of Residuals");
+ols_test_breusch_pagan(lmod2);
+vif(lmod2);
+
+plot(predict(lmod2),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1)
+```
+
+The results of the constant variance test indicate that there is non constant variance,however residuals are closely normal in the qq plot. The VIF numbers are mostly around one, meaning there is not indication of strong multi-colinearity. 
+
+We conclude the model building by constructing an additive linear model 
+```{r echo=FALSE}
+library(ISLR)
+
+lmod3<-lm(TARGET ~ VolatileAcidity + CitricAcid + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + s(LabelAppeal) + AcidIndex + s(STARS)
+ ,  data=wine_training3)
+
+summary(lmod3);
+
+par(mfrow=c(2,2))
+plot(lmod3)
+hist(resid(lmod3), main="Histogram of Residuals");
+ols_test_breusch_pagan(lmod2);
+vif(lmod3);
+
+plot(predict(lmod3),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1);
+ 
+ #goodness of fit
+ #pchisq(summary(pmod7)$deviance, 
+  #         summary(pmod7)$df.residual
+   #        )
+
+```
+
+Building an additive linear model does not seem to improve what we already know from the existing linear models. 
+
+In order have a large enough pool of models to pick from, we should consider the case of zero inflation models. This model type can be addapted for poisson regression or negative binomial regression, which are two model types we have considered till this point. Right off the bat, we can disregard the linear models due to the nature of the response variable. 
+
+The provided documentation states "Zero-inflated poisson regression is used to model count data that has an excess of zero counts. Further, theory suggests that the excess zeros are generated by a separate process from the count values and that the excess zeros can be modeled independently"
+https://stats.idre.ucla.edu/r/dae/zip/
+
+Just how many zeroes are present in our dataset?
+```{r echo=FALSE}
+colSums(wine_training3==0)
+```
+
+There is a substantial amount of data that contains zero values, hence we are more than justified to use zero inflation model types. We also have some logical arguments to consider. First, lets understand our data here. We have a count of the number of wine cases sold based on marketing and chemical attributes associated with that wine. A use case could be that a stakeholder also wants to predict the probability of a wine having a zero label appeal or a zero quality rating. This could be telling of how wine sales are impacted. We also have a goodness of fit motivation to try something different. The goodness of fit tests suggest our models are not good fits. 
+
+Poisson Zero Inflated Model-We will use only the variables from the last poisson model with our lofit predictors being STARS and LabelAppeal
+```{r echo=FALSE}
+require(ggplot2)
+require(pscl)
+require(MASS)
+require(boot)
+
+pmod7 <- zeroinfl(TARGET ~   Alcohol  + AcidIndex | STARS+LabelAppeal,
+  data = wine_training3)
+summary(pmod7);
+
+
+#glm.diag.plots(nmod3, glmdiag = glm.diag(nmod3), subset = NULL,
+ #              iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+#with(nmod3, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+#exp(cbind("Odds ratio" = coef(pmod7), confint.default(pmod7, level = 0.95)));
+
+#n2<-1-(18500/22860)
+#n2;
+
+plot(log(fitted(pmod7)), log((wine_training3$TARGET-fitted(pmod7))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1)
+
+vuong(pmod7, pmod4);
+
+plot(predict(pmod7),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1);
+ 
+#goodness of fit
+# pchisq(summary(pmod7)$deviance, 
+ #          summary(pmod7)$df.residual
+  #         )
+```
+
+The vuong test indicates that zero inflated poisson model is better than the regular poisson model due to the small p value. Our predictors in the count and inflation portions of the model are significant. 
+
+Lets see how this model compares to the null model
+```{r echo=FALSE}
+pnull <- update(pmod7, . ~ 1)
+
+pchisq(2 * (logLik(pmod7) - logLik(pnull)), df = 3, lower.tail = FALSE)
+```
+
+We can conclude that our model is staistically significant based on this hypothesis test. 
+
+IV) Model Selection 
+
+We need to parition a test and control data set from our larger training subset in order to predict model accuracy before we deploy on the evaluation data. 
+```{r include=FALSE}
+library(caret)
+Train <- createDataPartition(wine_training3$TARGET, p=0.7, list=FALSE)
+train <- wine_training3[Train, ]
+test <- wine_training3[-Train, ]
+```
+
+Lets show why the zero inflation poisson regression model is our best bet. 
+```{r echo=FALSE}
+dput(coef(pmod7, "count"));dput(coef(pmod7, "zero"))
+```
+
+We extract the logit portion of linear portion of our model. 
+```{r echo=FALSE}
+f <- function(data, i) 
+  {
+  require(pscl)
+  m <- zeroinfl(TARGET ~   Alcohol  + AcidIndex | STARS+LabelAppeal, data = data[i, ],
+    start = list(count = c(1.5350871583595, 0.0100184890625652, -0.0419759809109108
+), zero = c(-0.163773933205731, -0.658480007306658, 0.180109965808006
+)))
+  as.vector(t(do.call(rbind, coef(summary(m)))[, 1:2]))
+ }
+
+set.seed(10)
+res <- boot(wine_training3, f, R = 100, parallel = "snow", ncpus = 4)
+
+## print results
+res
+```
+
+The output here are alternating parameter estimates. tw pertains to parameter estimates,tw has the standard error, and t3 contains the bootstrap standard errors. 
+
+Confidence intervals
+```{r echo=FALSE}
+confint(pmod7)
+```
+
+How well does it predict values in our test data?
+Lets deploy our model on the evaluation data and look at some descriptives to compare to the training data.Before that,
+We can also partition our training data into a smaller subset and see actuals vs predicted
+```{r echo=FALSE}
+#gather predicted
+test_results2<-predict(pmod7, newdata=test, type = "response")
+target_pred<-data.frame(test_results2)
+
+actuals<-subset(test,select=c(TARGET))
+
+#plot
+results<-data.frame(target_pred, actuals)
+
+xyplot(TARGET ~ test_results2, data = results,
+  xlab = "Predicted ",
+  ylab = "Actuals",
+  main = "Predicted Wine Sales vs Actual Wine Sales on Test Data");
+
+plot_density(results);
+
+summary(results$TARGET);summary(results$test_results2)
+```
+
+
+Deploy to production on evaluation data and compare
+```{r echo=FALSE}
+test_results<-predict(pmod7, newdata=wine_evaluation3, type = "response")
+test.df<-data.frame(test_results)
+summary(test_results);summary(wine_training3$TARGET)
+
+```
+
+It looks like the distribution of our predicted values are roughly the same as the distirbution of the actuals. We can conclude that the zero inflated poisson model is our best model to predict the number of wine sales. 
+
+```{r echo=FALSE}
+summary(pmod7)
+```
+
+Appendix)
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+#read in data 
+url <- 'https://raw.githubusercontent.com/vindication09/DATA-621-Week-5/master/wine-training-data.csv'
+url2<-'https://raw.githubusercontent.com/vindication09/DATA-621-Week-5/master/wine-evaluation-data.csv'
+
+wine_training <- read.csv(url, header = TRUE)
+wine_evaluation <- read.csv(url2, header = TRUE)
+
+
+head(wine_training,10)
+
+wine_training2<-subset(wine_training, select=-c(INDEX))
+#wine_training2<-subset(wine_training, select=-c(INDEX))
+wine_evaluation2<-subset(wine_evaluation, select=-c(IN))
+names(wine_training2)
+str(wine_training2)
+
+#eda
+#install.packages('DataExplorer) 
+library(DataExplorer)
+plot_str(wine_training2)
+plot_missing(wine_training2)
+plot_histogram(wine_training2);plot_density(wine_training2)
+
+
+barplot(table(wine_training2$TARGET), ylim=c(0, 5000), xlab="Result", ylab="N", col="black",
+        main="Distribution of Target(Response)")
+
+summary(wine_training2)
+
+summary(wine_training2$TARGET);var(wine_training2$TARGET)
+
+#12,795
+colSums(wine_training2 < 0)
+#has.neg <- apply(wine_training2, 1, function(row) any(row < 0))
+#which(has.neg)
+
+apply(wine_training2,2,  function(col)cor(col, wine_training2$TARGET))
+
+
+#correlation matrix and visualization 
+correlation_matrix <- round(cor(wine_training2),2)
+
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(correlation_matrix){
+    correlation_matrix[upper.tri(correlation_matrix)] <- NA
+    return(correlation_matrix)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(correlation_matrix){
+    correlation_matrix[lower.tri(correlation_matrix)]<- NA
+    return(correlation_matrix)
+  }
+  
+  upper_tri <- get_upper_tri(correlation_matrix)
+
+
+
+library(reshape2)
+
+# Melt the correlation matrix
+melted_correlation_matrix <- melt(upper_tri, na.rm = TRUE)
+
+# Heatmap
+library(ggplot2)
+
+ggheatmap <- ggplot(data = melted_correlation_matrix, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 15, hjust = 1))+
+ coord_fixed()
+
+
+#add nice labels 
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 3) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.x=element_text(size=rel(0.8), angle=90),
+  axis.text.y=element_text(size=rel(0.8)),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwiwine_training3h = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+
+
+
+
+  outlierKD<-function(wine_training2, var) {
+     var_name <- eval(substitute(var),eval(wine_training3))
+     na1 <- sum(is.na(var_name))
+     m1 <- mean(var_name, na.rm = T)
+     par(mfrow=c(2, 2), oma=c(0,0,3,0))
+     boxplot(var_name, main="With outliers")
+     hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+     outlier <- boxplot.stats(var_name)$out
+     mo <- mean(outlier)
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="Without outliers")
+     hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+     title("Outlier Check", outer=TRUE)
+     na2 <- sum(is.na(var_name))
+     cat("Outliers identified:", na2 - na1, "n")
+     cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1), "n")
+     cat("Mean of the outliers:", round(mo, 2), "n")
+     m2 <- mean(var_name, na.rm = T)
+     cat("Mean without removing outliers:", round(m1, 2), "n")
+     cat("Mean if we remove outliers:", round(m2, 2), "n")
+     response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+     if(response == "y" | response == "yes"){
+          wine_training3[as.character(substitute(var))] <- invisible(var_name)
+          assign(as.character(as.list(match.call())$wine_training2), wine_training2, envir = .GlobalEnv)
+          cat("Outliers successfully removed", "n")
+          return(invisible(wine_training2))
+     } else{
+          cat("Nothing changed", "n")
+          return(invisible(var_name))
+     }
+}
+
+
+
+
+
+outlierKD(wine_training2, TARGET)
+
+
+
+outlierKD(wine_training2, Chlorides)
+
+
+
+
+outlierKD(wine_training2, Alcohol)
+
+
+
+
+outlierKD(wine_training2, FixedAcidity)
+
+
+
+
+outlierKD(wine_training2, FreeSulfurDioxide)
+
+
+
+
+outlierKD(wine_training2, LabelAppeal)
+
+
+
+outlierKD(wine_training2, VolatileAcidity)
+
+
+
+outlierKD(wine_training2, TotalSulfurDioxide)
+
+
+
+
+outlierKD(wine_training2, AcidIndex)
+
+
+
+outlierKD(wine_training2, CitricAcid)
+
+
+
+
+outlierKD(wine_training2, Density)
+
+
+
+outlierKD(wine_training2, ResidualSugar)
+
+
+
+outlierKD(wine_training2, pH)
+
+
+
+
+outlierKD(wine_training2, STARS)
+
+
+
+outlierKD(wine_training2, Sulphates)
+
+
+
+#Data prep
+
+library(Hmisc)
+
+wine_training3<-wine_training2
+
+wine_training3$STARS<-impute(wine_training3$STARS, median)
+
+#make an additional subset that retains the same values but simply removes negative values (not possible)
+wine_training_redux <- wine_training2[wine_training2$Alcohol >= 0 && wine_training2$Sulphates >= 0
+                                      && wine_training2$Sulphates >= 0
+                                      && wine_training2$TotalSulfurDioxide >= 0
+                                      && wine_training2$FreeSulfurDioxide >= 0
+                                      && wine_training2$Chlorides >= 0
+                                      && wine_training2$ResidualSugar
+                                      && wine_training2$CitricAcid
+                                      && wine_training2$VolatileAcidity >= 0
+                                      && wine_training2$FixedAcidity >= 0,]
+
+#wine_training_redux <- wine_training2[wine_training2$Sulphates >= 0,] 
+#wine_training_redux <- wine_training2[wine_training2$TotalSulfurDioxide >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$FreeSulfurDioxide >= 0, ]
+#wine_training_redux <- wine_training2[wine_training2$Chlorides >= 0, ]
+#wine_training_redux <- wine_training2[wine_training2$ResidualSugar >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$CitricAcid >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$VolatileAcidity >= 0,]
+#wine_training_redux <- wine_training2[wine_training2$FixedAcidity >= 0,]
+
+
+barplot(table(wine_training3$STARS), ylim=c(0, 7000), xlab="Rating (post impute)", ylab="N", col="black");
+barplot(table(wine_training2$STARS), ylim=c(0, 7000), xlab="Rating (pre impute)", ylab="N", col="black")
+
+
+
+colSums(wine_training3<0);colSums(is.na(wine_training3))
+
+
+
+wine_training3$Sulphates<-abs(wine_training3$Sulphates)
+wine_training3$pH<-abs(wine_training3$pH)
+wine_training3$ResidualSugar<-abs(wine_training3$ResidualSugar)
+wine_training3$Chlorides<-abs(wine_training3$Chlorides)
+wine_training3$FreeSulfurDioxide<-abs(wine_training3$FreeSulfurDioxide)
+wine_training3$TotalSulfurDioxide<-abs(wine_training3$TotalSulfurDioxide)
+wine_training3$VolatileAcidity<-abs(wine_training3$VolatileAcidity)
+wine_training3$Alcohol<-abs(wine_training3$ Alcohol)
+wine_training3$CitricAcid<-abs(wine_training3$CitricAcid)
+wine_training3$FixedAcidity<-abs(wine_training3$FixedAcidity)
+
+wine_evaluation3<-wine_evaluation
+
+wine_evaluation3$Sulphates<-abs(wine_evaluation3$Sulphates)
+wine_evaluation3$pH<-abs(wine_evaluation3$pH)
+wine_evaluation3$ResidualSugar<-abs(wine_evaluation3$ResidualSugar)
+wine_evaluation3$Chlorides<-abs(wine_evaluation3$Chlorides)
+wine_evaluation3$FreeSulfurDioxide<-abs(wine_evaluation3$FreeSulfurDioxide)
+wine_evaluation3$TotalSulfurDioxide<-abs(wine_evaluation3$TotalSulfurDioxide)
+wine_evaluation3$VolatileAcidity<-abs(wine_evaluation3$VolatileAcidity)
+wine_evaluation3$Alcohol<-abs(wine_evaluation3$ Alcohol)
+wine_evaluation3$CitricAcid<-abs(wine_evaluation3$CitricAcid)
+wine_evaluation3$FixedAcidity<-abs(wine_evaluation3$FixedAcidity)
+
+
+
+wine_training3$Sulphates<-impute(wine_training3$Sulphates, median)
+wine_training3$pH<-impute(wine_training3$pH, median)
+wine_training3$ResidualSugar<-impute(wine_training3$ResidualSugar, median)
+wine_training3$Chlorides<-impute(wine_training3$Chlorides, median)
+wine_training3$FreeSulfurDioxide<-impute(wine_training3$FreeSulfurDioxide, median)
+wine_training3$TotalSulfurDioxide<-impute(wine_training3$TotalSulfurDioxide, median)
+wine_training3$Alcohol<-impute(wine_training3$Alcohol, median)
+
+wine_evaluation3$Sulphates<-impute(wine_evaluation3$Sulphates, median)
+wine_evaluation3$pH<-impute(wine_evaluation3$pH, median)
+wine_evaluation3$ResidualSugar<-impute(wine_evaluation3$ResidualSugar, median)
+wine_evaluation3$Chlorides<-impute(wine_evaluation3$Chlorides, median)
+wine_evaluation3$FreeSulfurDioxide<-impute(wine_evaluation3$FreeSulfurDioxide, median)
+wine_evaluation3$TotalSulfurDioxide<-impute(wine_evaluation3$TotalSulfurDioxide, median)
+wine_evaluation3$Alcohol<-impute(wine_evaluation3$Alcohol, median)
+#wine_evaluation3$TARGET<-impute(wine_evaluation3$Alcohol, median)
+
+
+wine_training_redux$Sulphates<-impute(wine_training_redux$Sulphates, median)
+wine_training_redux$pH<-impute(wine_training_redux$pH, median)
+wine_training_redux$ResidualSugar<-impute(wine_training_redux$ResidualSugar, median)
+wine_training_redux$Chlorides<-impute(wine_training_redux$Chlorides, median)
+wine_training_redux$FreeSulfurDioxide<-impute(wine_training_redux$FreeSulfurDioxide, median)
+wine_training_redux$TotalSulfurDioxide<-impute(wine_training_redux$TotalSulfurDioxide, median)
+wine_training_redux$Alcohol<-impute(wine_training_redux$Alcohol, median)
+
+summary(wine_training3)
+
+
+
+#Modeling 
+library(vcd)
+library(faraway)
+library(AER)
+library(boot)
+
+pmod <- glm(TARGET~., family="poisson", data=wine_training3)
+summary(pmod);
+
+
+
+#goodness of fit
+anova(pmod, test="Chisq");
+
+glm.diag.plots(pmod, glmdiag = glm.diag(pmod), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+p1<-1-(18475/22861)
+p1;
+
+pchisq(pmod$deviance, df=pmod$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+
+
+library(MASS)
+step<-stepAIC(pmod, trace=FALSE)
+step$anova
+
+
+pmod2<-glm(TARGET ~ VolatileAcidity + CitricAcid + Chlorides + FreeSulfurDioxide + 
+    TotalSulfurDioxide + Density + pH + Sulphates + Alcohol + 
+    LabelAppeal + AcidIndex + STARS, family="poisson",  data=wine_training3)
+
+summary(pmod2);
+
+#goodness of fit
+anova(pmod2, test="Chisq");
+
+glm.diag.plots(pmod2, glmdiag = glm.diag(pmod2), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod2, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+p2<-1-(18475/22861)
+p2;
+
+pchisq(pmod2$deviance, df=pmod2$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+
+
+pmod3<-glm(TARGET ~ CitricAcid + Chlorides + FreeSulfurDioxide + 
+    TotalSulfurDioxide + Density + Sulphates + Alcohol + 
+    LabelAppeal + AcidIndex + STARS, family="poisson",  data=wine_training3)
+
+summary(pmod3);
+
+#goodness of fit
+anova(pmod3, test="Chisq");
+
+glm.diag.plots(pmod3, glmdiag = glm.diag(pmod3), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod3, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+p3<-1-(18475/22861)
+p3
+
+pchisq(pmod3$deviance, df=pmod3$df.residual, lower.tail=FALSE)
+#dispersion test
+
+
+
+pmod4<-glm(TARGET ~ Chlorides + FreeSulfurDioxide + 
+    TotalSulfurDioxide + Density + Sulphates + Alcohol + 
+    LabelAppeal + AcidIndex + STARS, family="poisson",  data=wine_training4)
+
+summary(pmod4);
+
+#goodness of fit
+anova(pmod4, test="Chisq");
+
+glm.diag.plots(pmod4, glmdiag = glm.diag(pmod4), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod4, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(pmod4), confint.default(pmod4, level = 0.95)));
+
+p4<-1-(18475/22861)
+p4;
+
+plot(log(fitted(pmod4)), log((wine_training4$TARGET-fitted(pmod4))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+pchisq(pmod4$deviance, df=pmod4$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+
+
+library(gam)
+
+pmod_smooth<-gam(TARGET ~ s(LabelAppeal)+s(AcidIndex)+s(STARS) , family=poisson(link=log),  data=wine_training3)
+
+#pmod_smooth<-gam(TARGET ~ LabelAppeal+AcidIndex+STARS , family=poisson(link=log),  data=wine_training3)
+
+summary(pmod_smooth);
+
+#goodness of fit
+anova(pmod_smooth, test="Chisq");
+
+glm.diag.plots(pmod_smooth, glmdiag = glm.diag(pmod_smooth), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(pmod_smooth, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(pmod_smooth), confint.default(pmod_smooth, level = 0.95)));
+
+p_smooth<-1-(17735.95/22860.89)
+p_smooth;
+
+plot(log(fitted(pmod_smooth)), log((wine_training3$TARGET-fitted(pmod_smooth))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+# 1-pchisq(summary(pmod_smooth)$deviance, summary(pmod_smooth)$df.residual)
+pchisq(pmod_smooth$deviance, df=pmod_smooth$df.residual, lower.tail=FALSE)
+
+#dispersion test
+
+#deviance(pmod)/pmod$df.residual
+#dispersiontest(pmod);
+
+#halfnorm(residuals(pmod))
+#plot(p_smooth, pages = 1, scheme = 1, all.terms = TRUE, seWithMean = TRUE)
+
+
+library(MASS)
+nmod1 <- glm.nb(TARGET ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3)
+
+summary(nmod1);
+
+#goodness of fit
+anova(nmod1, test="Chisq");
+
+glm.diag.plots(nmod1, glmdiag = glm.diag(nmod1), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(nmod1, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(nmod1), confint.default(nmod1, level = 0.95)));
+
+#n<-1-(18474/22860)
+#n;
+
+plot(log(fitted(nmod1)), log((wine_training3$TARGET-fitted(nmod1))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+pchisq(nmod1$deviance, df=nmod1$df.residual, lower.tail=FALSE)
+
+
+nmod2 <- glm.nb(TARGET ~ VolatileAcidity  + 
+    Chlorides + TotalSulfurDioxide + Density + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3)
+
+summary(nmod2);
+
+#goodness of fit
+anova(nmod2, test="Chisq");
+
+glm.diag.plots(nmod2, glmdiag = glm.diag(nmod2), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(nmod2, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(nmod2), confint.default(nmod2, level = 0.95)));
+
+#n2<-1-(18500/22860)
+#n2;
+
+plot(log(fitted(nmod2)), log((wine_training3$TARGET-fitted(nmod2))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+#goodness of fit
+pchisq(nmod2$deviance, df=nmod2$df.residual, lower.tail=FALSE)
+
+
+
+
+
+nmod4 <- glm.nb(TARGET ~ Alcohol+LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3)
+
+summary(nmod4);
+
+#goodness of fit
+anova(nmod4, test="Chisq");
+
+glm.diag.plots(nmod4, glmdiag = glm.diag(nmod4), subset = NULL,
+               iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+with(nmod4, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+exp(cbind("Odds ratio" = coef(nmod4), confint.default(nmod4, level = 0.95)));
+
+#n2<-1-(18566/22860)
+#n2;
+
+plot(log(fitted(nmod4)), log((wine_training3$TARGET-fitted(nmod4))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1);
+
+plot(predict(nmod4),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1);
+ 
+ #goodness of fit
+pchisq(nmod4$deviance, df=nmod4$df.residual, lower.tail=FALSE)
+
+
+
+library(olsrr)
+
+lmod1 <- lm(TARGET ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3);
+
+summary(lmod1);
+
+par(mfrow=c(2,2))
+plot(lmod1)
+hist(resid(lmod1), main="Histogram of Residuals");
+ols_test_breusch_pagan(lmod1);
+vif(lmod1);
+
+plot(predict(lmod1),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1)
+
+
+ lstep<-stepAIC(lmod1, trace=FALSE)
+lstep$anova
+
+
+lmod2 <- lm(TARGET ~ VolatileAcidity + CitricAcid + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS
+ ,  data=wine_training3);
+
+summary(lmod2);
+
+par(mfrow=c(2,2))
+plot(lmod2)
+hist(resid(lmod2), main="Histogram of Residuals");
+ols_test_breusch_pagan(lmod2);
+vif(lmod2);
+
+plot(predict(lmod2),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1)
+
+
+ library(ISLR)
+
+lmod3<-lm(TARGET ~ VolatileAcidity + CitricAcid + 
+    Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + 
+    pH + Sulphates + Alcohol + s(LabelAppeal) + AcidIndex + s(STARS)
+ ,  data=wine_training3)
+
+summary(lmod3);
+
+par(mfrow=c(2,2))
+plot(lmod3)
+hist(resid(lmod3), main="Histogram of Residuals");
+ols_test_breusch_pagan(lmod2);
+vif(lmod3);
+
+plot(predict(lmod3),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1);
+ 
+ #goodness of fit
+ #pchisq(summary(pmod7)$deviance, 
+  #         summary(pmod7)$df.residual
+   #        )
+
+
+
+require(ggplot2)
+require(pscl)
+require(MASS)
+require(boot)
+
+pmod7 <- zeroinfl(TARGET ~   Alcohol  + AcidIndex | STARS+LabelAppeal,
+  data = wine_training3)
+summary(pmod7);
+
+
+#glm.diag.plots(nmod3, glmdiag = glm.diag(nmod3), subset = NULL,
+ #              iden = FALSE, labels = NULL, ret = FALSE)
+
+#cov.pmod <- vcovHC(pmod, type="HC0")
+#std.err <- sqrt(diag(cov.pmod))
+#r.est <- cbind(Estimate= coef(pmod), "Robust SE" = std.err,
+#"Pr(>|z|)" = 2 * pnorm(abs(coef(pmod)/std.err), lower.tail=FALSE),
+#LL = coef(pmod) - 1.96 * std.err,
+#UL = coef(pmod) + 1.96 * std.err);
+
+#r.est;
+
+#with(nmod3, cbind(res.deviance = deviance, df = df.residual,p = pchisq(deviance, df.residual, lower.tail=FALSE)));
+
+#exp(cbind("Odds ratio" = coef(pmod7), confint.default(pmod7, level = 0.95)));
+
+#n2<-1-(18500/22860)
+#n2;
+
+plot(log(fitted(pmod7)), log((wine_training3$TARGET-fitted(pmod7))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2))
+abline(0, 1)
+
+vuong(pmod7, pmod4);
+
+plot(predict(pmod7),wine_training3$TARGET,
+      xlab="predicted",ylab="actual")
+ abline(a=0,b=1);
+ 
+#goodness of fit
+# pchisq(summary(pmod7)$deviance, 
+ #          summary(pmod7)$df.residual
+  #         )
+
+
+
+#model selection
+
+  pnull <- update(pmod7, . ~ 1)
+
+pchisq(2 * (logLik(pmod7) - logLik(pnull)), df = 3, lower.tail = FALSE)
+
+
+
+library(caret)
+Train <- createDataPartition(wine_training3$TARGET, p=0.7, list=FALSE)
+train <- wine_training3[Train, ]
+test <- wine_training3[-Train, ]
+
+
+dput(coef(pmod7, "count"));dput(coef(pmod7, "zero"))
+
+
+f <- function(data, i) 
+  {
+  require(pscl)
+  m <- zeroinfl(TARGET ~   Alcohol  + AcidIndex | STARS+LabelAppeal, data = data[i, ],
+    start = list(count = c(1.5350871583595, 0.0100184890625652, -0.0419759809109108
+), zero = c(-0.163773933205731, -0.658480007306658, 0.180109965808006
+)))
+  as.vector(t(do.call(rbind, coef(summary(m)))[, 1:2]))
+ }
+
+set.seed(10)
+res <- boot(wine_training3, f, R = 100, parallel = "snow", ncpus = 4)
+
+## print results
+res
+
+
+
+#conclusion
+#gather predicted
+test_results2<-predict(pmod7, newdata=test, type = "response")
+target_pred<-data.frame(test_results2)
+
+actuals<-subset(test,select=c(TARGET))
+
+#plot
+results<-data.frame(target_pred, actuals)
+
+xyplot(TARGET ~ test_results2, data = results,
+  xlab = "Predicted ",
+  ylab = "Actuals",
+  main = "Predicted Wine Sales vs Actual Wine Sales on Test Data");
+
+plot_density(results);
+
+summary(results$TARGET);summary(results$test_results2)
+
+
+
+```
+
